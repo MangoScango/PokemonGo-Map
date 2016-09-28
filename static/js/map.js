@@ -1,15 +1,17 @@
-//
+﻿//
 // Global map.js variables
 //
 
 var $selectExclude
 var $selectPokemonNotify
 var $selectRarityNotify
+var $textPerfectionNotify
 var $selectStyle
 var $selectIconResolution
 var $selectIconSize
 var $selectLuredPokestopsOnly
 var $selectSearchIconMarker
+var $selectGymMarkerStyle
 var $selectLocationIconMarker
 
 var language = document.documentElement.lang === '' ? 'en' : document.documentElement.lang
@@ -23,6 +25,7 @@ var searchMarkerStyles
 var excludedPokemon = []
 var notifiedPokemon = []
 var notifiedRarity = []
+var notifiedMinPerfection = null
 
 var map
 var rawDataIsLoading = false
@@ -31,6 +34,7 @@ var rangeMarkers = ['pokemon', 'pokestop', 'gym']
 var searchMarker
 var storeZoom = true
 var scanPath
+var moves
 
 var selectedStyle = 'light'
 
@@ -38,7 +42,9 @@ var updateWorker
 var lastUpdateTime
 
 var gymTypes = ['Uncontested', 'Mystic', 'Valor', 'Instinct']
+var gymPrestige = [2000, 4000, 8000, 12000, 16000, 20000, 30000, 40000, 50000]
 var audio = new Audio('static/sounds/ding.mp3')
+
 
 //
 // Functions
@@ -308,14 +314,25 @@ function openMapDirections (lat, lng) { // eslint-disable-line no-unused-vars
   window.open(url, '_blank')
 }
 
-function pokemonLabel (name, rarity, types, disappearTime, id, latitude, longitude, encounterId) {
+function pokemonLabel (name, rarity, types, disappearTime, id, latitude, longitude, encounterId, atk, def, sta, move1, move2) {
   var disappearDate = new Date(disappearTime)
   var rarityDisplay = rarity ? '(' + rarity + ')' : ''
   var typesDisplay = ''
   $.each(types, function (index, type) {
     typesDisplay += getTypeSpan(type)
   })
-
+  var details = ''
+  if (atk != null) {
+    var iv = (atk + def + sta) / 45 * 100
+    details = `
+      <div>
+        IV: ${iv.toFixed(1)}% (${atk}/${def}/${sta})
+      </div>
+      <div>
+        Moves: ${i8ln(moves[move1]['name'])} / ${i8ln(moves[move2]['name'])}
+      </div>
+      `
+  }
   var contentstring = `
     <div>
       <b>${name}</b>
@@ -334,6 +351,7 @@ function pokemonLabel (name, rarity, types, disappearTime, id, latitude, longitu
     <div>
       Location: ${latitude.toFixed(6)}, ${longitude.toFixed(7)}
     </div>
+      ${details}
     <div>
       <a href='javascript:excludePokemon(${id})'>Exclude</a>&nbsp;&nbsp
       <a href='javascript:notifyAboutPokemon(${id})'>Notify</a>&nbsp;&nbsp
@@ -386,11 +404,7 @@ function gymLabel (teamName, teamId, gymPoints, latitude, longitude, lastScanned
         </center>
       </div>`
   } else {
-    var gymPrestige = [2000, 4000, 8000, 12000, 16000, 20000, 30000, 40000, 50000]
-    var gymLevel = 1
-    while (gymPoints >= gymPrestige[gymLevel - 1]) {
-      gymLevel++
-    }
+    var gymLevel = getGymLevel(gymPoints)
     str = `
       <div>
         <center>
@@ -424,6 +438,15 @@ function gymLabel (teamName, teamId, gymPoints, latitude, longitude, lastScanned
   }
 
   return str
+}
+
+function getGymLevel (points) {
+  var level = 1
+  while (points >= gymPrestige[level - 1]) {
+    level++
+  }
+
+  return level
 }
 
 function pokestopLabel (expireTime, latitude, longitude) {
@@ -542,7 +565,7 @@ function customizePokemonMarker (marker, item, skipNotification) {
   }
 
   marker.infoWindow = new google.maps.InfoWindow({
-    content: pokemonLabel(item['pokemon_name'], item['pokemon_rarity'], item['pokemon_types'], item['disappear_time'], item['pokemon_id'], item['latitude'], item['longitude'], item['encounter_id']),
+    content: pokemonLabel(item['pokemon_name'], item['pokemon_rarity'], item['pokemon_types'], item['disappear_time'], item['pokemon_id'], item['latitude'], item['longitude'], item['encounter_id'], item['individual_attack'], item['individual_defense'], item['individual_stamina'], item['move_1'], item['move_2']),
     disableAutoPan: true
   })
 
@@ -558,6 +581,21 @@ function customizePokemonMarker (marker, item, skipNotification) {
     }
   }
 
+  if (item['individual_attack'] != null) {
+    var perfection = 100.0 * (item['individual_attack'] + item['individual_defense'] + item['individual_stamina']) / 45
+    if (notifiedMinPerfection > 0 && perfection >= notifiedMinPerfection) {
+      if (!skipNotification) {
+        if (Store.get('playSound')) {
+          audio.play()
+        }
+        sendNotification('A ' + perfection.toFixed(1) + '% perfect ' + item['pokemon_name'] + ' appeared!', 'Click to load map', 'static/icons/' + item['pokemon_id'] + '.png', item['latitude'], item['longitude'])
+      }
+      if (marker.animationDisabled !== true) {
+        marker.setAnimation(google.maps.Animation.BOUNCE)
+      }
+    }
+  }
+
   addListeners(marker)
 }
 
@@ -568,7 +606,7 @@ function setupGymMarker (item) {
       lng: item['longitude']
     },
     map: map,
-    icon: 'static/forts/' + gymTypes[item['team_id']] + '.png'
+    icon: {url: 'static/forts/' + Store.get('gymMarkerStyle') + '/' + gymTypes[item['team_id']] + (item['team_id'] !== 0 ? '_' + getGymLevel(item['gym_points']) : '') + '.png', scaledSize: new google.maps.Size(48, 48)}
   })
 
   if (!marker.rangeCircle && isRangeActive(map)) {
@@ -585,9 +623,14 @@ function setupGymMarker (item) {
 }
 
 function updateGymMarker (item, marker) {
-  marker.setIcon('static/forts/' + gymTypes[item['team_id']] + '.png')
+  marker.setIcon({url: 'static/forts/' + Store.get('gymMarkerStyle') + '/' + gymTypes[item['team_id']] + (item['team_id'] !== 0 ? '_' + getGymLevel(item['gym_points']) : '') + '.png', scaledSize: new google.maps.Size(48, 48)})
   marker.infoWindow.setContent(gymLabel(gymTypes[item['team_id']], item['team_id'], item['gym_points'], item['latitude'], item['longitude'], item['last_scanned'], item['name'], item['pokemon']))
   return marker
+}
+function updateGymIcons () {
+  $.each(mapData.gyms, function (key, value) {
+    mapData.gyms[key]['marker'].setIcon({url: 'static/forts/' + Store.get('gymMarkerStyle') + '/' + gymTypes[mapData.gyms[key]['team_id']] + (mapData.gyms[key]['team_id'] !== 0 ? '_' + getGymLevel(mapData.gyms[key]['gym_points']) : '') + '.png', scaledSize: new google.maps.Size(48, 48)})
+  })
 }
 
 function setupPokestopMarker (item) {
@@ -1414,6 +1457,20 @@ $(function () {
 
     $selectLocationIconMarker.val(Store.get('locationMarkerStyle')).trigger('change')
   })
+
+  $selectGymMarkerStyle = $('#gym-marker-style')
+
+  $selectGymMarkerStyle.select2({
+    placeholder: 'Select Style',
+    minimumResultsForSearch: Infinity
+  })
+
+  $selectGymMarkerStyle.on('change', function (e) {
+    Store.set('gymMarkerStyle', this.value)
+    updateGymIcons()
+  })
+
+  $selectGymMarkerStyle.val(Store.get('gymMarkerStyle')).trigger('change')
 })
 
 $(function () {
@@ -1431,9 +1488,14 @@ $(function () {
     centerMapOnLocation()
   }
 
+  $.getJSON('static/dist/data/moves.min.json').done(function (data) {
+    moves = data
+  })
+
   $selectExclude = $('#exclude-pokemon')
   $selectPokemonNotify = $('#notify-pokemon')
   $selectRarityNotify = $('#notify-rarity')
+  $textPerfectionNotify = $('#notify-perfection')
   var numberOfPokemon = 151
 
   // Load pokemon names and populate lists
@@ -1492,11 +1554,23 @@ $(function () {
       notifiedRarity = $selectRarityNotify.val().map(String)
       Store.set('remember_select_rarity_notify', notifiedRarity)
     })
+    $textPerfectionNotify.on('change', function (e) {
+      notifiedMinPerfection = parseInt($textPerfectionNotify.val(), 10)
+      if (isNaN(notifiedMinPerfection) || notifiedMinPerfection <= 0) {
+        notifiedMinPerfection = ''
+      }
+      if (notifiedMinPerfection > 100) {
+        notifiedMinPerfection = 100
+      }
+      $textPerfectionNotify.val(notifiedMinPerfection)
+      Store.set('remember_text_perfection_notify', notifiedMinPerfection)
+    })
 
     // recall saved lists
     $selectExclude.val(Store.get('remember_select_exclude')).trigger('change')
     $selectPokemonNotify.val(Store.get('remember_select_notify')).trigger('change')
     $selectRarityNotify.val(Store.get('remember_select_rarity_notify')).trigger('change')
+    $textPerfectionNotify.val(Store.get('remember_text_perfection_notify')).trigger('change')
 
     if (isTouchDevice() && isMobileDevice()) {
       $('.select2-search input').prop('readonly', true)

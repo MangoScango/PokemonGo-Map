@@ -688,6 +688,10 @@ var StoreOptions = {
     default: [],
     type: StoreTypes.JSON
   },
+  'remember_text_perfection_notify': {
+    default: '',
+    type: StoreTypes.Number
+  },
   'showGyms': {
     default: false,
     type: StoreTypes.Boolean
@@ -754,6 +758,10 @@ var StoreOptions = {
   },
   'locationMarkerStyle': {
     default: 'none',
+    type: StoreTypes.String
+  },
+  'gymMarkerStyle': {
+    default: 'shield',
     type: StoreTypes.String
   },
   'zoomLevel': {
