@@ -255,6 +255,7 @@ var searchControlURI = 'search_control'
 function searchControl (action) {
   $.post(searchControlURI + '?action=' + encodeURIComponent(action))
 }
+
 function updateSearchStatus () {
   $.getJSON(searchControlURI).then(function (data) {
     $('#search-switch').prop('checked', data.status)
@@ -489,6 +490,7 @@ function formatSpawnTime (seconds) {
   // the subtraction to get the appearance time will knock seconds under 0 if the spawn happens in the previous hour
   return ('0' + Math.floor(((seconds + 3600) % 3600) / 60)).substr(-2) + ':' + ('0' + seconds % 60).substr(-2)
 }
+
 function spawnpointLabel (item) {
   var str = `
     <div>
@@ -627,6 +629,7 @@ function updateGymMarker (item, marker) {
   marker.infoWindow.setContent(gymLabel(gymTypes[item['team_id']], item['team_id'], item['gym_points'], item['latitude'], item['longitude'], item['last_scanned'], item['name'], item['pokemon']))
   return marker
 }
+
 function updateGymIcons () {
   $.each(mapData.gyms, function (key, value) {
     mapData.gyms[key]['marker'].setIcon({url: 'static/forts/' + Store.get('gymMarkerStyle') + '/' + gymTypes[mapData.gyms[key]['team_id']] + (mapData.gyms[key]['team_id'] !== 0 ? '_' + getGymLevel(mapData.gyms[key]['gym_points']) : '') + '.png', scaledSize: new google.maps.Size(48, 48)})
