@@ -677,7 +677,7 @@ var StoreOptions = {
     type: StoreTypes.String
   },
   'remember_select_exclude': {
-    default: [],
+    default: [10, 13, 16, 19, 21, 48],
     type: StoreTypes.JSON
   },
   'remember_select_notify': {
